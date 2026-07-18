@@ -1,0 +1,340 @@
+From 0e79791fa5f68e587e864a774b002ba5b4f29127 Mon Sep 17 00:00:00 2001
+From: Yannis Juglaret <yjuglaret@mozilla.com>
+Date: Wed, 8 Jul 2026 06:41:08 +0200
+Subject: [PATCH] nouveau: fix data race in nouveau_fence_ref
+
+nouveau_fence_ref dereferences *ref to find the fence list lock, but
+this read happens before the lock is acquired. When two threads call
+nouveau_fence_ref on the same *ref concurrently, the unprotected read
+of *ref races with the write in _nouveau_fence_ref.
+
+Fix this by passing the screen pointer as an explicit argument so the
+lock can be derived without touching *ref first.
+
+Fixes: f2af3a9cae2 ("nouveau: make fencing race free")
+Assisted-by: Claude Code (Claude Opus 4.6)
+Reviewed-by: Karol Herbst <kherbst@redhat.com>
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/42822>
+---
+ src/gallium/drivers/nouveau/nouveau_buffer.c  | 22 +++++++++----------
+ src/gallium/drivers/nouveau/nouveau_fence.c   | 15 +++++--------
+ src/gallium/drivers/nouveau/nouveau_fence.h   |  3 ++-
+ src/gallium/drivers/nouveau/nouveau_screen.c  |  3 ++-
+ .../drivers/nouveau/nv30/nv30_context.c       |  3 ++-
+ .../nouveau/nv30/nv30_state_validate.c        |  4 ++--
+ .../drivers/nouveau/nv50/nv50_context.c       |  3 ++-
+ .../drivers/nouveau/nv50/nv50_context.h       |  6 +++--
+ .../drivers/nouveau/nv50/nv50_miptree.c       |  4 ++--
+ .../drivers/nouveau/nv50/nv50_query_hw.c      |  4 ++--
+ .../drivers/nouveau/nv50/nv50_query_hw_sm.c   |  2 +-
+ .../drivers/nouveau/nvc0/nvc0_context.c       |  3 ++-
+ .../drivers/nouveau/nvc0/nvc0_context.h       |  4 ++--
+ .../drivers/nouveau/nvc0/nvc0_query_hw.c      |  4 ++--
+ .../drivers/nouveau/nvc0/nvc0_query_hw_sm.c   |  2 +-
+ 15 files changed, 42 insertions(+), 40 deletions(-)
+
+diff --git a/src/gallium/drivers/nouveau/nouveau_buffer.c b/src/gallium/drivers/nouveau/nouveau_buffer.c
+index 6d73bb1474c5..7e79d72cefe7 100644
+--- a/src/gallium/drivers/nouveau/nouveau_buffer.c
++++ b/src/gallium/drivers/nouveau/nouveau_buffer.c
+@@ -111,8 +111,8 @@ nouveau_buffer_reallocate(struct nouveau_screen *screen,
+ {
+    nouveau_buffer_release_gpu_storage(buf);
+ 
+-   nouveau_fence_ref(NULL, &buf->fence);
+-   nouveau_fence_ref(NULL, &buf->fence_wr);
++   nouveau_fence_ref(NULL, &buf->fence, screen);
++   nouveau_fence_ref(NULL, &buf->fence_wr, screen);
+ 
+    buf->status &= NOUVEAU_BUFFER_STATUS_REALLOC_MASK;
+ 
+@@ -135,8 +135,8 @@ nouveau_buffer_destroy(struct pipe_screen *pscreen,
+    if (res->data && !(res->status & NOUVEAU_BUFFER_STATUS_USER_MEMORY))
+       align_free(res->data);
+ 
+-   nouveau_fence_ref(NULL, &res->fence);
+-   nouveau_fence_ref(NULL, &res->fence_wr);
++   nouveau_fence_ref(NULL, &res->fence, nouveau_screen(pscreen));
++   nouveau_fence_ref(NULL, &res->fence_wr, nouveau_screen(pscreen));
+ 
+    util_range_destroy(&res->valid_buffer_range);
+ 
+@@ -229,8 +229,8 @@ nouveau_transfer_write(struct nouveau_context *nv, struct nouveau_transfer *tx,
+    else
+       nv->push_data(nv, buf->bo, buf->offset + base, buf->domain, size, data);
+ 
+-   nouveau_fence_ref(nv->fence, &buf->fence);
+-   nouveau_fence_ref(nv->fence, &buf->fence_wr);
++   nouveau_fence_ref(nv->fence, &buf->fence, nv->screen);
++   nouveau_fence_ref(nv->fence, &buf->fence_wr, nv->screen);
+ }
+ 
+ /* Does a CPU wait for the buffer's backing data to become reliably accessible
+@@ -255,9 +255,9 @@ nouveau_buffer_sync(struct nouveau_context *nv,
+       if (!nouveau_fence_wait(buf->fence, &nv->debug))
+          return false;
+ 
+-      nouveau_fence_ref(NULL, &buf->fence);
++      nouveau_fence_ref(NULL, &buf->fence, nv->screen);
+    }
+-   nouveau_fence_ref(NULL, &buf->fence_wr);
++   nouveau_fence_ref(NULL, &buf->fence_wr, nv->screen);
+ 
+    return true;
+ }
+@@ -593,11 +593,11 @@ nouveau_copy_buffer(struct nouveau_context *nv,
+                     src->bo, src->offset + srcx, src->domain, size);
+ 
+       dst->status |= NOUVEAU_BUFFER_STATUS_GPU_WRITING;
+-      nouveau_fence_ref(nv->fence, &dst->fence);
+-      nouveau_fence_ref(nv->fence, &dst->fence_wr);
++      nouveau_fence_ref(nv->fence, &dst->fence, nv->screen);
++      nouveau_fence_ref(nv->fence, &dst->fence_wr, nv->screen);
+ 
+       src->status |= NOUVEAU_BUFFER_STATUS_GPU_READING;
+-      nouveau_fence_ref(nv->fence, &src->fence);
++      nouveau_fence_ref(nv->fence, &src->fence, nv->screen);
+    } else {
+       struct pipe_box src_box;
+       src_box.x = srcx;
+diff --git a/src/gallium/drivers/nouveau/nouveau_fence.c b/src/gallium/drivers/nouveau/nouveau_fence.c
+index c2b2ebc40347..54c977bd54b0 100644
+--- a/src/gallium/drivers/nouveau/nouveau_fence.c
++++ b/src/gallium/drivers/nouveau/nouveau_fence.c
+@@ -351,19 +351,14 @@ _nouveau_fence_ref(struct nouveau_fence *fence, struct nouveau_fence **ref)
+ }
+ 
+ void
+-nouveau_fence_ref(struct nouveau_fence *fence, struct nouveau_fence **ref)
++nouveau_fence_ref(struct nouveau_fence *fence, struct nouveau_fence **ref,
++                  struct nouveau_screen *screen)
+ {
+-   struct nouveau_fence_list *fence_list = NULL;
+-   if (ref && *ref)
+-      fence_list = &(*ref)->screen->fence;
+-
+-   if (fence_list)
+-      simple_mtx_lock(&fence_list->lock);
++   struct nouveau_fence_list *fence_list = &screen->fence;
+ 
++   simple_mtx_lock(&fence_list->lock);
+    _nouveau_fence_ref(fence, ref);
+-
+-   if (fence_list)
+-      simple_mtx_unlock(&fence_list->lock);
++   simple_mtx_unlock(&fence_list->lock);
+ }
+ 
+ bool
+diff --git a/src/gallium/drivers/nouveau/nouveau_fence.h b/src/gallium/drivers/nouveau/nouveau_fence.h
+index 711beac85936..cf0f328bb788 100644
+--- a/src/gallium/drivers/nouveau/nouveau_fence.h
++++ b/src/gallium/drivers/nouveau/nouveau_fence.h
+@@ -66,7 +66,8 @@ void nouveau_fence_update(struct nouveau_screen *, bool flushed);
+ void nouveau_fence_next_if_current(struct nouveau_context *, struct nouveau_fence *);
+ bool nouveau_fence_wait(struct nouveau_fence *, struct util_debug_callback *);
+ bool nouveau_fence_signalled(struct nouveau_fence *);
+-void nouveau_fence_ref(struct nouveau_fence *, struct nouveau_fence **);
++void nouveau_fence_ref(struct nouveau_fence *, struct nouveau_fence **,
++                       struct nouveau_screen *);
+ 
+ void nouveau_fence_unref_bo(void *data); /* generic unref bo callback */
+ 
+diff --git a/src/gallium/drivers/nouveau/nouveau_screen.c b/src/gallium/drivers/nouveau/nouveau_screen.c
+index 2dd66c05a121..9050fa17f721 100644
+--- a/src/gallium/drivers/nouveau/nouveau_screen.c
++++ b/src/gallium/drivers/nouveau/nouveau_screen.c
+@@ -83,7 +83,8 @@ nouveau_screen_fence_ref(struct pipe_screen *pscreen,
+                          struct pipe_fence_handle *pfence)
+ {
+    nouveau_fence_ref((pfence ? nouveau_fence(pfence) : NULL),
+-                     (ptr ? (struct nouveau_fence **)ptr : NULL));
++                     (ptr ? (struct nouveau_fence **)ptr : NULL),
++                     nouveau_screen(pscreen));
+ }
+ 
+ static bool
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_context.c b/src/gallium/drivers/nouveau/nv30/nv30_context.c
+index bf7b35c94d75..fe47a330ec3b 100644
+--- a/src/gallium/drivers/nouveau/nv30/nv30_context.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_context.c
+@@ -73,7 +73,8 @@ nv30_context_flush(struct pipe_context *pipe, struct pipe_fence_handle **fence,
+ 
+    if (fence)
+       nouveau_fence_ref(nv30->base.fence,
+-                        (struct nouveau_fence **)fence);
++                        (struct nouveau_fence **)fence,
++                        nv30->base.screen);
+ 
+    PUSH_KICK(push);
+ 
+diff --git a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
+index 1129f80c1e5f..dc6d447e258c 100644
+--- a/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
++++ b/src/gallium/drivers/nouveau/nv30/nv30_state_validate.c
+@@ -522,13 +522,13 @@ nv30_state_validate(struct nv30_context *nv30, uint32_t mask, bool hwtnl)
+    LIST_FOR_EACH_ENTRY(bref, &bctx->current, thead) {
+       struct nv04_resource *res = bref->priv;
+       if (res && res->mm) {
+-         nouveau_fence_ref(nv30->base.fence, &res->fence);
++         nouveau_fence_ref(nv30->base.fence, &res->fence, nv30->base.screen);
+ 
+          if (bref->flags & NOUVEAU_BO_RD)
+             res->status |= NOUVEAU_BUFFER_STATUS_GPU_READING;
+ 
+          if (bref->flags & NOUVEAU_BO_WR) {
+-            nouveau_fence_ref(nv30->base.fence, &res->fence_wr);
++            nouveau_fence_ref(nv30->base.fence, &res->fence_wr, nv30->base.screen);
+             res->status |= NOUVEAU_BUFFER_STATUS_GPU_WRITING;
+          }
+       }
+diff --git a/src/gallium/drivers/nouveau/nv50/nv50_context.c b/src/gallium/drivers/nouveau/nv50/nv50_context.c
+index e9c96849a872..336c2c4d82b9 100644
+--- a/src/gallium/drivers/nouveau/nv50/nv50_context.c
++++ b/src/gallium/drivers/nouveau/nv50/nv50_context.c
+@@ -36,7 +36,8 @@ nv50_flush(struct pipe_context *pipe,
+    struct nouveau_context *context = nouveau_context(pipe);
+ 
+    if (fence)
+-      nouveau_fence_ref(context->fence, (struct nouveau_fence **)fence);
++      nouveau_fence_ref(context->fence, (struct nouveau_fence **)fence,
++                        context->screen);
+ 
+    PUSH_KICK(context->pushbuf);
+ 
+diff --git a/src/gallium/drivers/nouveau/nv50/nv50_context.h b/src/gallium/drivers/nouveau/nv50/nv50_context.h
+index de3c2b02fc87..ed43acb32491 100644
+--- a/src/gallium/drivers/nouveau/nv50/nv50_context.h
++++ b/src/gallium/drivers/nouveau/nv50/nv50_context.h
+@@ -268,9 +268,11 @@ nv50_resource_validate(struct nv50_context *context, struct nv04_resource *res,
+          res->status |= NOUVEAU_BUFFER_STATUS_GPU_READING;
+ 
+       if (res->mm) {
+-         nouveau_fence_ref(context->base.fence, &res->fence);
++         nouveau_fence_ref(context->base.fence, &res->fence,
++                           context->base.screen);
+          if (flags & NOUVEAU_BO_WR)
+-            nouveau_fence_ref(context->base.fence, &res->fence_wr);
++            nouveau_fence_ref(context->base.fence, &res->fence_wr,
++                              context->base.screen);
+       }
+    }
+ }
+diff --git a/src/gallium/drivers/nouveau/nv50/nv50_miptree.c b/src/gallium/drivers/nouveau/nv50/nv50_miptree.c
+index 3cb093a181df..bcd6e6a5327c 100644
+--- a/src/gallium/drivers/nouveau/nv50/nv50_miptree.c
++++ b/src/gallium/drivers/nouveau/nv50/nv50_miptree.c
+@@ -164,8 +164,8 @@ nv50_miptree_destroy(struct pipe_screen *pscreen, struct pipe_resource *pt)
+    struct nv50_miptree *mt = nv50_miptree(pt);
+ 
+    nouveau_fence_work(mt->base.fence, nouveau_fence_unref_bo, mt->base.bo);
+-   nouveau_fence_ref(NULL, &mt->base.fence);
+-   nouveau_fence_ref(NULL, &mt->base.fence_wr);
++   nouveau_fence_ref(NULL, &mt->base.fence, nouveau_screen(pscreen));
++   nouveau_fence_ref(NULL, &mt->base.fence_wr, nouveau_screen(pscreen));
+ 
+    NOUVEAU_DRV_STAT(nouveau_screen(pscreen), tex_obj_current_count, -1);
+    NOUVEAU_DRV_STAT(nouveau_screen(pscreen), tex_obj_current_bytes,
+diff --git a/src/gallium/drivers/nouveau/nv50/nv50_query_hw.c b/src/gallium/drivers/nouveau/nv50/nv50_query_hw.c
+index ba132245249e..a0022010c471 100644
+--- a/src/gallium/drivers/nouveau/nv50/nv50_query_hw.c
++++ b/src/gallium/drivers/nouveau/nv50/nv50_query_hw.c
+@@ -115,7 +115,7 @@ nv50_hw_destroy_query(struct nv50_context *nv50, struct nv50_query *q)
+    }
+ 
+    nv50_hw_query_allocate(nv50, q, 0);
+-   nouveau_fence_ref(NULL, &hq->fence);
++   nouveau_fence_ref(NULL, &hq->fence, nv50->base.screen);
+    FREE(hq);
+ }
+ 
+@@ -265,7 +265,7 @@ nv50_hw_end_query(struct nv50_context *nv50, struct nv50_query *q)
+       break;
+    }
+    if (hq->is64bit)
+-      nouveau_fence_ref(nv50->base.fence, &hq->fence);
++      nouveau_fence_ref(nv50->base.fence, &hq->fence, nv50->base.screen);
+ }
+ 
+ static bool
+diff --git a/src/gallium/drivers/nouveau/nv50/nv50_query_hw_sm.c b/src/gallium/drivers/nouveau/nv50/nv50_query_hw_sm.c
+index c1f78a0677e6..7d4a14ff258c 100644
+--- a/src/gallium/drivers/nouveau/nv50/nv50_query_hw_sm.c
++++ b/src/gallium/drivers/nouveau/nv50/nv50_query_hw_sm.c
+@@ -154,7 +154,7 @@ nv50_hw_sm_destroy_query(struct nv50_context *nv50, struct nv50_hw_query *hq)
+ {
+    struct nv50_query *q = &hq->base;
+    nv50_hw_query_allocate(nv50, q, 0);
+-   nouveau_fence_ref(NULL, &hq->fence);
++   nouveau_fence_ref(NULL, &hq->fence, nv50->base.screen);
+    FREE(hq);
+ }
+ 
+diff --git a/src/gallium/drivers/nouveau/nvc0/nvc0_context.c b/src/gallium/drivers/nouveau/nvc0/nvc0_context.c
+index 80470e6a9959..bf88dc2b8785 100644
+--- a/src/gallium/drivers/nouveau/nvc0/nvc0_context.c
++++ b/src/gallium/drivers/nouveau/nvc0/nvc0_context.c
+@@ -83,7 +83,8 @@ nvc0_flush(struct pipe_context *pipe,
+    struct nvc0_context *nvc0 = nvc0_context(pipe);
+ 
+    if (fence)
+-      nouveau_fence_ref(nvc0->base.fence, (struct nouveau_fence **)fence);
++      nouveau_fence_ref(nvc0->base.fence, (struct nouveau_fence **)fence,
++                        nvc0->base.screen);
+ 
+    PUSH_KICK(nvc0->base.pushbuf); /* fencing handled in kick_notify */
+ 
+diff --git a/src/gallium/drivers/nouveau/nvc0/nvc0_context.h b/src/gallium/drivers/nouveau/nvc0/nvc0_context.h
+index e94182d06317..993facce0329 100644
+--- a/src/gallium/drivers/nouveau/nvc0/nvc0_context.h
++++ b/src/gallium/drivers/nouveau/nvc0/nvc0_context.h
+@@ -312,9 +312,9 @@ static inline void
+ nvc0_resource_fence(struct nvc0_context *nvc0, struct nv04_resource *res, uint32_t flags)
+ {
+    if (res->mm) {
+-      nouveau_fence_ref(nvc0->base.fence, &res->fence);
++      nouveau_fence_ref(nvc0->base.fence, &res->fence, nvc0->base.screen);
+       if (flags & NOUVEAU_BO_WR)
+-         nouveau_fence_ref(nvc0->base.fence, &res->fence_wr);
++         nouveau_fence_ref(nvc0->base.fence, &res->fence_wr, nvc0->base.screen);
+    }
+ }
+ 
+diff --git a/src/gallium/drivers/nouveau/nvc0/nvc0_query_hw.c b/src/gallium/drivers/nouveau/nvc0/nvc0_query_hw.c
+index c727c9d0f486..57fae130ba0b 100644
+--- a/src/gallium/drivers/nouveau/nvc0/nvc0_query_hw.c
++++ b/src/gallium/drivers/nouveau/nvc0/nvc0_query_hw.c
+@@ -118,7 +118,7 @@ nvc0_hw_destroy_query(struct nvc0_context *nvc0, struct nvc0_query *q)
+    }
+ 
+    nvc0_hw_query_allocate(nvc0, q, 0);
+-   nouveau_fence_ref(NULL, &hq->fence);
++   nouveau_fence_ref(NULL, &hq->fence, nvc0->base.screen);
+    FREE(hq);
+ }
+ 
+@@ -301,7 +301,7 @@ nvc0_hw_end_query(struct nvc0_context *nvc0, struct nvc0_query *q)
+       break;
+    }
+    if (hq->is64bit)
+-      nouveau_fence_ref(nvc0->base.fence, &hq->fence);
++      nouveau_fence_ref(nvc0->base.fence, &hq->fence, nvc0->base.screen);
+ }
+ 
+ static bool
+diff --git a/src/gallium/drivers/nouveau/nvc0/nvc0_query_hw_sm.c b/src/gallium/drivers/nouveau/nvc0/nvc0_query_hw_sm.c
+index 86e63bab8970..7b68ad77af85 100644
+--- a/src/gallium/drivers/nouveau/nvc0/nvc0_query_hw_sm.c
++++ b/src/gallium/drivers/nouveau/nvc0/nvc0_query_hw_sm.c
+@@ -2303,7 +2303,7 @@ nvc0_hw_sm_destroy_query(struct nvc0_context *nvc0, struct nvc0_hw_query *hq)
+ {
+    struct nvc0_query *q = &hq->base;
+    nvc0_hw_query_allocate(nvc0, q, 0);
+-   nouveau_fence_ref(NULL, &hq->fence);
++   nouveau_fence_ref(NULL, &hq->fence, nvc0->base.screen);
+    FREE(hq);
+ }
+ 
+-- 
+GitLab
+

@@ -1,0 +1,3 @@
+d245e759d09021caed4df9cc45f0e8f17d841044beae0538d350bdfbf99df3c7  patches/linux/0001-instmem-iomapping.patch
+43ed6403e63aabdb633e00bc4e54968ed593b8486e823799bdf93c1e5457114c  patches/linux/0002-nv50-pfifo-tlb-invalidate.patch
+7d9ab0db4078b2cad7703ca44b3d635dd96e848ed0184e354220533d6d829c63  patches/linux/0003-nva5-qword-bar2-read.patch

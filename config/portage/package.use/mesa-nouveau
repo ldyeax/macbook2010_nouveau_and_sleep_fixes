@@ -1,0 +1,4 @@
+# GT216/NVA5 has no supported Mesa Vulkan driver, and this machine exposes no
+# Intel GPU.  Disable unused OpenCL/Vulkan, but retain LLVM so llvmpipe remains
+# a useful accelerated software fallback if Nouveau cannot initialize.
+media-libs/mesa -opencl -vulkan LLVM_SLOT: -* 21

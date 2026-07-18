@@ -1,0 +1,6 @@
+# The active profile builds new Python packages for 3.14, while installed
+# LIRC and Jinja2 still require these two libraries for Python 3.13.  Keep both
+# implementations during this transition so the narrow Mesa update does not
+# force unrelated removals or LLVM 22.
+dev-python/pyyaml python_targets_python3_13
+dev-python/markupsafe python_targets_python3_13

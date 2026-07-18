@@ -1,0 +1,12 @@
+*.img
+*.ko
+*.o
+*.tar
+*.tar.*
+System.map-*
+kernel-*
+vmlinux*
+build/
+out/
+return/
+evidence/raw/

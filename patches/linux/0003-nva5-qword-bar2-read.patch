@@ -1,0 +1,137 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Sat, 18 Jul 2026 05:45:00 -0400
+Subject: [PATCH] drm/nouveau/nva5: use qword BAR2 reads for instmem suspend
+
+Nouveau saves preserved instance-memory objects through their CPU mapping
+before suspending the GPU.  NVA5 maps those objects through its prefetchable
+write-combined BAR2 aperture, but x86 memcpy_fromio() uses REP MOVSL.  On a
+GT216M this reads the aperture at only about 1.83 MiB/s and adds roughly 17
+seconds to suspend with a Plasma workload.
+
+The generic DRM WC helper is not a solution on this platform: its MOVNTDQA
+path measures only 0.25 MiB/s and holds kernel FPU state, preemption, and
+softirqs across each very slow object copy.
+
+Add an optional memory-object bulk-read callback and use it only for aligned
+NVA5 mappings on x86-64.  Issue four explicit __raw_readq() operations
+before storing their values so the root complex can have multiple PCIe read
+completions in flight.  This measures about 2.83 MiB/s on the affected
+machine without using SIMD state or bypassing the MMIO accessor API.
+
+All other chipsets, architectures, and unaligned copies retain the existing
+memcpy_fromio() path.  Mark the explicit device-read result initialized for
+KMSAN, matching memcpy_fromio() semantics.
+
+Signed-off-by: Codex <codex@openai.com>
+---
+ .../nouveau/include/nvkm/core/memory.h        |  2 +
+ .../nouveau/nvkm/subdev/instmem/base.c        |  2 +
+ .../nouveau/nvkm/subdev/instmem/nv50.c        | 55 +++++++++++++++++++
+ 3 files changed, 59 insertions(+)
+
+diff --git a/drivers/gpu/drm/nouveau/include/nvkm/core/memory.h b/drivers/gpu/drm/nouveau/include/nvkm/core/memory.h
+--- a/drivers/gpu/drm/nouveau/include/nvkm/core/memory.h
++++ b/drivers/gpu/drm/nouveau/include/nvkm/core/memory.h
+@@ -36,6 +36,8 @@ struct nvkm_memory_func {
+ 	void (*boot)(struct nvkm_memory *, struct nvkm_vmm *);
+ 	void __iomem *(*acquire)(struct nvkm_memory *);
+ 	void (*release)(struct nvkm_memory *);
++	void (*memcpy_from)(struct nvkm_memory *, void *,
++			    const void __iomem *, size_t);
+ 	int (*map)(struct nvkm_memory *, u64 offset, struct nvkm_vmm *,
+ 		   struct nvkm_vma *, void *argv, u32 argc);
+ 	int (*kmap)(struct nvkm_memory *, struct nvkm_memory **);
+diff --git a/drivers/gpu/drm/nouveau/nvkm/subdev/instmem/base.c b/drivers/gpu/drm/nouveau/nvkm/subdev/instmem/base.c
+--- a/drivers/gpu/drm/nouveau/nvkm/subdev/instmem/base.c
++++ b/drivers/gpu/drm/nouveau/nvkm/subdev/instmem/base.c
+@@ -63,6 +63,8 @@ nvkm_instobj_save(struct nvkm_instobj *iobj)
+ 	if (!(map = nvkm_kmap(memory))) {
+ 		for (i = 0; i < size; i += 4)
+ 			iobj->suspend[i / 4] = nvkm_ro32(memory, i);
++	} else if (memory->func->memcpy_from) {
++		memory->func->memcpy_from(memory, iobj->suspend, map, size);
+ 	} else {
+ 		memcpy_fromio(iobj->suspend, map, size);
+ 	}
+diff --git a/drivers/gpu/drm/nouveau/nvkm/subdev/instmem/nv50.c b/drivers/gpu/drm/nouveau/nvkm/subdev/instmem/nv50.c
+--- a/drivers/gpu/drm/nouveau/nvkm/subdev/instmem/nv50.c
++++ b/drivers/gpu/drm/nouveau/nvkm/subdev/instmem/nv50.c
+@@ -24,6 +24,8 @@
+ #define nv50_instmem(p) container_of((p), struct nv50_instmem, base)
+ #include "priv.h"
+ 
++#include <linux/kmsan-checks.h>
++
+ #include <core/memory.h>
+ #include <subdev/bar.h>
+ #include <subdev/fb.h>
+@@ -111,6 +113,58 @@ nv50_instobj_rd32(struct nvkm_memory *memory, u64 offset)
+ 	return ioread32_native(nv50_instobj(memory)->map + offset);
+ }
+ 
++static void
++nv50_instobj_memcpy_from(struct nvkm_memory *memory, void *dst,
++			 const void __iomem *src, size_t size)
++{
++#ifdef CONFIG_X86_64
++	struct nv50_instobj *iobj = nv50_instobj(memory);
++	struct nvkm_device *device = iobj->imem->base.subdev.device;
++
++	/*
++	 * MOVNTDQA is pathologically slow for NVA5's WC BAR2 aperture on
++	 * Westmere.  Four independent 64-bit MMIO reads keep multiple PCIe
++	 * completions in flight without borrowing SIMD state.  Keep this
++	 * narrowly scoped: other chipsets retain the architecture's normal
++	 * memcpy_fromio() implementation below.
++	 */
++	if (device->chipset == 0xa5 &&
++	    !(((unsigned long)dst | (unsigned long)src | size) & 7)) {
++		void *orig_dst = dst;
++		size_t orig_size = size;
++		u64 *to = dst;
++		const u64 __iomem *from = src;
++
++		rmb();
++		while (size >= 4 * sizeof(*from)) {
++			u64 v0 = __raw_readq(from + 0);
++			u64 v1 = __raw_readq(from + 1);
++			u64 v2 = __raw_readq(from + 2);
++			u64 v3 = __raw_readq(from + 3);
++
++			/* Complete all four reads before reusing their registers. */
++			barrier();
++			to[0] = v0;
++			to[1] = v1;
++			to[2] = v2;
++			to[3] = v3;
++			to += 4;
++			from += 4;
++			size -= 4 * sizeof(*from);
++		}
++		while (size) {
++			*to++ = __raw_readq(from++);
++			size -= sizeof(*from);
++		}
++		rmb();
++		kmsan_unpoison_memory(orig_dst, orig_size);
++		return;
++	}
++#endif
++
++	memcpy_fromio(dst, src, size);
++}
++
+ static const struct nvkm_memory_ptrs
+ nv50_instobj_fast = {
+ 	.rd32 = nv50_instobj_rd32,
+@@ -350,6 +404,7 @@ nv50_instobj_func = {
+ 	.boot = nv50_instobj_boot,
+ 	.acquire = nv50_instobj_acquire,
+ 	.release = nv50_instobj_release,
++	.memcpy_from = nv50_instobj_memcpy_from,
+ 	.map = nv50_instobj_map,
+ };
+ 
+-- 
+2.53.0

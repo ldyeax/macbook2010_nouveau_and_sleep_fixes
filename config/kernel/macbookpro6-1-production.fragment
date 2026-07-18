@@ -1,0 +1,249 @@
+# Additional production pruning after the one-variable tlb1 A/B passes.
+# Target: Apple MacBookPro6,1 with its current /dev/sda3 root filesystem.
+
+# xfs_info reports a v5 (crc=1), case-sensitive filesystem with no realtime
+# section; it is mounted noquota.  No xfs_scrub timer is enabled.  Keep the
+# core XFS/root, reflink, rmapbt, and v5 feature support, but omit compatibility
+# and optional online-repair code that this installation does not use.
+# CONFIG_XFS_SUPPORT_V4 is not set
+# CONFIG_XFS_SUPPORT_ASCII_CI is not set
+# CONFIG_XFS_QUOTA is not set
+# CONFIG_XFS_RT is not set
+# CONFIG_XFS_ONLINE_SCRUB is not set
+
+# The internal USB Bluetooth controller is Broadcom.  btusb unconditionally
+# selects the small Intel helper, but its optional MediaTek and Realtek
+# protocol blocks can be disabled without affecting BT_HCIBTUSB_BCM.
+# CONFIG_BT_HCIBTUSB_MTK is not set
+# CONFIG_BT_HCIBTUSB_RTL is not set
+
+# This machine has no PS/2 controller.  Its internal keyboard and trackpad
+# are USB devices handled by USB_HID/HID_APPLE and BCM5974.  Disable the two
+# input users as well as SERIO itself so Kconfig cannot select the stack back.
+# CONFIG_KEYBOARD_ATKBD is not set
+# CONFIG_MOUSE_PS2 is not set
+# CONFIG_SERIO is not set
+
+# MacBookPro6,1 has no TPM device.  Keep ENCRYPTED_KEYS, which also works with
+# ordinary kernel/user keys, but remove the TPM and TPM-backed trusted-key
+# infrastructure.
+# CONFIG_TCG_TPM is not set
+# CONFIG_TRUSTED_KEYS is not set
+
+# The CPU and chipset are Intel Arrandale/HM55.  Remove AMD-only platform,
+# frequency, IOMMU, pinctrl, SPI, USB-quirk, and radio-coexistence support.
+# CONFIG_X86_AMD_PLATFORM_DEVICE is not set
+# CONFIG_X86_AMD_PSTATE is not set
+# CONFIG_AMD_IOMMU is not set
+# CONFIG_SPI_AMD is not set
+# CONFIG_USB_PCI_AMD is not set
+# CONFIG_AMD_WBRF is not set
+
+# intel_pstate does not support this Westmere CPU and rejects it on every
+# boot.  SCHED_MC_PRIO is Intel Turbo Boost Max 3/ITMT scheduler support and
+# otherwise selects intel_pstate back on; Arrandale has neither feature.
+# Retain X86_ACPI_CPUFREQ, which owns all live cpufreq policies.
+# CONFIG_SCHED_MC_PRIO is not set
+# CONFIG_X86_INTEL_PSTATE is not set
+
+# HM55 predates Intel LPSS, SCU, SoC PMICs, Bay Trail/Cherry Trail and BXT.
+# None of these ACPI/PCI devices exists here.  Retain the real LPC_ICH path;
+# the separately probed-but-nonfunctional iTCO and INTEL_IPS paths are handled
+# below.
+# CONFIG_X86_INTEL_LPSS is not set
+# CONFIG_IOSF_MBI is not set
+# CONFIG_MFD_AXP20X_I2C is not set
+# CONFIG_MFD_INTEL_LPSS_ACPI is not set
+# CONFIG_MFD_INTEL_LPSS_PCI is not set
+# CONFIG_INTEL_SCU_PCI is not set
+# CONFIG_MFD_INTEL_PMC_BXT is not set
+# CONFIG_I2C_DESIGNWARE_CORE is not set
+# CONFIG_PMIC_OPREGION is not set
+# CONFIG_INTEL_SMARTCONNECT is not set
+
+# Firmware exposes the battery through the ACPI Smart Battery System: BAT0 is
+# bound to sbs/sbshc, not the generic ACPI battery driver.  Likewise, the only
+# registered panel backlight is gmux_backlight from apple-gmux; Nouveau does
+# not register a backlight on this dual-GPU Apple wiring.  Keep the live SBS
+# and GMUX paths and omit their unused alternatives.
+# CONFIG_ACPI_BATTERY is not set
+# CONFIG_DRM_NOUVEAU_BACKLIGHT is not set
+
+# The remaining live GPIO provider is the Broadcom/BCMA Wi-Fi device, not an
+# x86 pin controller.  With the AMD and LPSS selectors above gone, the generic
+# pinctrl framework and its Intel tablet drivers can be omitted.
+# CONFIG_PINCTRL is not set
+
+# The installed disk uses an MBR/DOS partition table.  Leave the default DOS
+# parser and explicit GPT support available for recovery media, but omit the
+# legacy foreign-disk-label menu (AIX, APM, BSD, Minix, Solaris, UnixWare,
+# Windows LDM, SGI, Sun and related formats).
+# CONFIG_PARTITION_ADVANCED is not set
+CONFIG_MSDOS_PARTITION=y
+CONFIG_EFI_PARTITION=y
+
+# Keep EFI/EFI_STUB/APPLE_PROPERTIES for an emergency alternate Apple boot
+# path even though the installed GRUB currently boots in legacy BIOS mode.
+# Nouveau also selects ACPI_WMI/MXM_WMI on x86; attempting to disable those
+# in a config fragment would merely be overridden by olddefconfig.
+
+# The installed SSD is directly attached through ata_piix and there is no
+# port multiplier/eSATA path.  No SCSI device-handler implementation is
+# enabled.  ExpressCard is PCIe/USB on this model, not CardBus/PCMCIA.
+# CONFIG_SCSI_DH is not set
+# CONFIG_SATA_PMP is not set
+# CONFIG_PCCARD is not set
+
+# This legacy x86 Mac enumerates hardware through ACPI, PCI and USB.  Its
+# device-tree sysfs placeholder contains no hardware nodes, so the OF parser,
+# overlay and DT-only helper stack is dead code.  Firmware also exposes no
+# HEST/ERST/BERT APEI tables.  Retain PSTORE itself because DPM_WATCHDOG uses
+# it during the suspend investigation, but omit its inactive EFI backend.
+# CONFIG_OF is not set
+# CONFIG_ACPI_APEI is not set
+# CONFIG_EFI_VARS_PSTORE is not set
+
+# Westmere has no Intel RDT/resctrl or Hardware Feedback Interface.  DAMON,
+# idle-page tracking and PAGE_EXTENSION are unused diagnostic/MM facilities
+# with avoidable memory cost.  The Intel IPS module never binds and has no PM
+# callbacks; iTCO is explicitly disabled by this firmware's NO_REBOOT bit.
+# CONFIG_X86_CPU_RESCTRL is not set
+# CONFIG_DAMON is not set
+# CONFIG_IDLE_PAGE_TRACKING is not set
+# CONFIG_PAGE_EXTENSION is not set
+# CONFIG_INTEL_HFI_THERMAL is not set
+# CONFIG_INTEL_IPS is not set
+# CONFIG_ITCO_WDT is not set
+
+# No Fibre Channel, NCSI or WWAN device/driver exists.  NETKIT is unused.
+# CONFIG_NET_FC is not set
+# CONFIG_NETKIT is not set
+# CONFIG_NET_NCSI is not set
+# CONFIG_WWAN is not set
+
+# Keep the actual BCM43224/brcmsmac Wi-Fi path and wired TG3 path.  Also retain
+# the alternative USB Wi-Fi families: NetworkManager has historical profiles
+# for two such adapters, so they are real recovery hardware rather than generic
+# config debris.  USB Ethernet, storage and UAS likewise stay enabled.
+
+# Input is USB HID plus bcm5974; there is no N-Trig, HID-BPF, I2C-HID, tablet
+# or touchscreen device.  Apple IR uses hid_appleir rather than rc-core/LIRC.
+# The camera is a plain UVC device and needs neither sensor/lens subdevices nor
+# CEC.  No FireWire audio device is present; FireWire storage remains enabled.
+# CONFIG_HID_NTRIG is not set
+# CONFIG_HID_BPF is not set
+# CONFIG_I2C_HID is not set
+# CONFIG_INPUT_TABLET is not set
+# CONFIG_INPUT_TOUCHSCREEN is not set
+# CONFIG_RC_CORE is not set
+# CONFIG_DRM_DISPLAY_DP_AUX_CEC is not set
+# CONFIG_MEDIA_CEC_SUPPORT is not set
+# CONFIG_MEDIA_SUBDRV_AUTOSELECT is not set
+# CONFIG_VIDEO_CAMERA_SENSOR is not set
+# CONFIG_VIDEO_CAMERA_LENS is not set
+# CONFIG_SND_FIREWIRE is not set
+
+# Remove inactive role-switch, monitor/upload and early-USB debugging paths,
+# plus boot-delay and self-test code.  Keep PM_DEBUG, PM_TRACE, DPM_WATCHDOG,
+# PSTORE, ftrace and kprobes for future Nouveau diagnostics.  The qword build
+# reduced the accepted device-suspend phase to 10.147 seconds; disable only the
+# hard-coded ten-second PM test whose warning no longer conveys a fault.
+# CONFIG_USB_ROLE_SWITCH is not set
+# CONFIG_USB_MON is not set
+# CONFIG_USB_XHCI_DBGCAP is not set
+# CONFIG_FW_LOADER_DEBUG is not set
+# CONFIG_FW_UPLOAD is not set
+# CONFIG_BOOT_PRINTK_DELAY is not set
+# CONFIG_PROVIDE_OHCI1394_DMA_INIT is not set
+# CONFIG_EARLY_PRINTK_DBGP is not set
+# CONFIG_EARLY_PRINTK_USB_XDBC is not set
+# CONFIG_ATOMIC64_SELFTEST is not set
+# CONFIG_TEST_KSTRTOX is not set
+# CONFIG_PM_TEST_SUSPEND is not set
+# CONFIG_GENTOO_PRINT_FIRMWARE_INFO is not set
+
+# No CCP crypto device is present.  Drop the unused 842 transform and obsolete
+# crypto userspace ABI while retaining algorithms required by kexec
+# verification and cfg80211's signed regulatory database.  The previous
+# MODULE_SIG=y/MODULE_SIG_ALL=n combination accepted every in-tree module but
+# tainted the kernel as soon as one loaded.  This legacy-BIOS machine does not
+# enforce signed modules, so disable that non-enforcing checker rather than
+# carrying a misleading permanent UNSIGNED_MODULE taint.
+# CONFIG_CRYPTO_842 is not set
+# CONFIG_CRYPTO_USER_API_ENABLE_OBSOLETE is not set
+# CONFIG_CRYPTO_DEV_CCP is not set
+# CONFIG_MODULE_SIG is not set
+
+# The GT216M is PCIe and this platform exposes no AGP bridge.  Its USB devices
+# all sit below the two working EHCI controllers; both UHCI functions fail
+# probe with no IRQ and there is no USB OHCI controller.  FireWire OHCI is a
+# separate, present device and remains enabled.
+# CONFIG_AGP is not set
+# CONFIG_USB_UHCI_HCD is not set
+# CONFIG_USB_OHCI_HCD is not set
+
+# Firmware exposes no usable serial port.  All ttyS candidates report unknown
+# UARTs and the real console is tty0.  ExpressCard hotplug is PCIe/pciehp, not
+# the older SHPC mechanism.
+# CONFIG_SERIAL_8250 is not set
+# CONFIG_SERIAL_NONSTANDARD is not set
+# CONFIG_HOTPLUG_PCI_SHPC is not set
+
+# ACPI provides no DMAR table and the GPU cannot use modern shared virtual
+# addressing.  Remove the Intel IOMMU/remapping stack and its leaf facilities.
+# CONFIG_DMAR_TABLE is not set
+# CONFIG_INTEL_IOMMU is not set
+# CONFIG_IRQ_REMAP is not set
+# CONFIG_IOMMU_SVA is not set
+# CONFIG_IOMMU_IOPF is not set
+
+# This fixed laptop has no ACPI dock or HED device.  Keep the generic ACPI CPU,
+# IOAPIC and container helpers selected by the real processor/S3 stack; Kconfig
+# correctly retains those even though physical CPU replacement is impossible.
+# CONFIG_ACPI_DOCK is not set
+# CONFIG_ACPI_HED is not set
+
+# The userspace is pure amd64 and uses unified cgroup v2.  Keep memory, CPU,
+# device, freezer and namespace controllers, but remove the legacy v1-only
+# network/RDMA interfaces and x32 syscall ABI.
+# CONFIG_X86_X32_ABI is not set
+# CONFIG_MEMCG_V1 is not set
+# CONFIG_CGROUP_RDMA is not set
+# CONFIG_NET_CLS_CGROUP is not set
+# CONFIG_CGROUP_NET_PRIO is not set
+# CONFIG_CGROUP_NET_CLASSID is not set
+
+# Dracut's production image is zstd-compressed (after its uncompressed
+# microcode cpio).  Retain zstd and gzip recovery support, but omit the other
+# unused early-initramfs decompressors.  SquashFS's own codecs remain enabled
+# because installed and future snaps use them independently.
+# CONFIG_RD_BZIP2 is not set
+# CONFIG_RD_LZMA is not set
+# CONFIG_RD_XZ is not set
+# CONFIG_RD_LZO is not set
+# CONFIG_RD_LZ4 is not set
+
+# Westmere advertises no x2APIC, the only watchdog is firmware-disabled iTCO,
+# and no hardware RNG device exists.  Normal CPU entropy instructions and the
+# kernel's software RNG are unrelated and remain enabled.
+# CONFIG_X86_X2APIC is not set
+# CONFIG_WATCHDOG is not set
+# CONFIG_HW_RANDOM is not set
+
+# The 2010 PCIe fabric has none of these SR-IOV/ATS/PASID/DOE or recent PCIe
+# services.  Keep MSI, PME, ASPM, AER and pciehp, which are present or useful.
+# CONFIG_PCI_STUB is not set
+# CONFIG_PCI_IOV is not set
+# CONFIG_PCI_ATS is not set
+# CONFIG_PCI_PRI is not set
+# CONFIG_PCI_PASID is not set
+# CONFIG_PCI_DOE is not set
+# CONFIG_PCI_NPEM is not set
+# CONFIG_PCIE_DPC is not set
+# CONFIG_PCIE_PTM is not set
+# CONFIG_PCIE_EDR is not set
+
+# There is no crashkernel reservation or kdump service.  Retain ordinary kexec
+# for recovery, but omit crash-dump and kexec-jump image machinery.
+# CONFIG_CRASH_DUMP is not set
+# CONFIG_KEXEC_JUMP is not set

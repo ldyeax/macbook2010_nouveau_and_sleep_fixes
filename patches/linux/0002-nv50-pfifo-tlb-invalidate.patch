@@ -1,0 +1,63 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Fri, 17 Jul 2026 23:35:00 -0400
+Subject: [PATCH] drm/nouveau/nv50: invalidate PFIFO TLB for channel VMM
+ updates
+
+PFIFO reads GPFIFO entries and indirect push buffers through the channel
+VMM.  However, channel creation does not account for PFIFO in
+vmm->engref.  Consequently, nv50_vmm_flush() does not invalidate engine
+0x05 when mappings in a channel VMM change.
+
+The older nv50 VM implementation invoked pfifo->tlb_flush() for channel
+VMs.  The engine-module conversion dropped that engine-0x05 flush while
+switching VM invalidation to registered engine users and callbacks.
+Current channel construction does not account for PFIFO in engref either.
+The missing invalidation can leave PFIFO fetching commands through a stale
+translation, producing DMA_PUSHER INVALID_CMD/INVALID_MTHD faults followed
+by unrelated graphics engine faults.
+
+Track PFIFO as a VMM user for the lifetime of every hardware channel and
+map NVKM_ENGINE_FIFO to Tesla's engine-0x05 TLB invalidate.
+
+Fixes: ebb945a94bba ("drm/nouveau: port all engines to new engine module format")
+Link: https://bugs.launchpad.net/ubuntu/+source/linux/+bug/2128858
+Link: https://gitlab.freedesktop.org/drm/nouveau/-/issues/480
+---
+ drivers/gpu/drm/nouveau/nvkm/engine/fifo/chan.c    | 2 ++
+ drivers/gpu/drm/nouveau/nvkm/subdev/mmu/vmmnv50.c | 1 +
+ 2 files changed, 3 insertions(+)
+
+diff --git a/drivers/gpu/drm/nouveau/nvkm/engine/fifo/chan.c b/drivers/gpu/drm/nouveau/nvkm/engine/fifo/chan.c
+index 3b25205118b0..6a419942f8b0 100644
+--- a/drivers/gpu/drm/nouveau/nvkm/engine/fifo/chan.c
++++ b/drivers/gpu/drm/nouveau/nvkm/engine/fifo/chan.c
+@@ -282,6 +282,7 @@ nvkm_chan_del(struct nvkm_chan **pchan)
+ 	nvkm_memory_unref(&chan->userd.mem);
+ 
+ 	if (chan->vmm) {
++		atomic_dec(&chan->vmm->engref[NVKM_ENGINE_FIFO]);
+ 		nvkm_vmm_part(chan->vmm, chan->inst->memory);
+ 		nvkm_vmm_unref(&chan->vmm);
+ 	}
+@@ -425,6 +426,7 @@ nvkm_chan_new_(const struct nvkm_chan_func *func, struct nvkm_runl *runl, int ru
+ 		}
+ 
+ 		chan->vmm = nvkm_vmm_ref(vmm);
++		atomic_inc(&chan->vmm->engref[NVKM_ENGINE_FIFO]);
+ 	}
+ 
+ 	/* Allocate HW ctxdma for push buffer. */
+diff --git a/drivers/gpu/drm/nouveau/nvkm/subdev/mmu/vmmnv50.c b/drivers/gpu/drm/nouveau/nvkm/subdev/mmu/vmmnv50.c
+index 4c2a05d456af..4edf08087d2f 100644
+--- a/drivers/gpu/drm/nouveau/nvkm/subdev/mmu/vmmnv50.c
++++ b/drivers/gpu/drm/nouveau/nvkm/subdev/mmu/vmmnv50.c
+@@ -200,5 +200,6 @@ nv50_vmm_flush(struct nvkm_vmm *vmm, int level)
+ 		case NVKM_ENGINE_VP    :
+ 		case NVKM_ENGINE_MSPDEC: id = 0x01; break;
++		case NVKM_ENGINE_FIFO  : id = 0x05; break;
+ 		case NVKM_SUBDEV_BAR   : id = 0x06; break;
+ 		case NVKM_ENGINE_MSPPP :
+ 		case NVKM_ENGINE_MPEG  : id = 0x08; break;
+-- 
+2.53.0

@@ -1,0 +1,53 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Sat, 18 Jul 2026 03:49:00 -0400
+Subject: [PATCH] drm/nouveau/instmem: use WC-optimized copy for suspend
+
+Nouveau saves every preserved instance-memory object to system memory
+before suspending the GPU.  On NV50 and later, mapped objects are read
+through a write-combined BAR2 mapping.  Ordinary memcpy_fromio() reads
+from WC mappings are extremely slow on x86 because they do not prefetch.
+
+Use drm_memcpy_from_wc(), which uses MOVNTDQA where available and falls
+back to the existing copy semantics on other platforms.  Keep the BAR0
+slow path, BAR2 teardown ordering, and resume path unchanged.
+
+On a GT216M, a Plasma session had 31.824 MiB in 82 mapped objects.  The
+old path copied them at 1.902 MiB/s and added 16.729 seconds to every
+suspend.  The machine is a bare-metal SSE4.1-capable x86 system, so it can
+use the optimized path.
+
+Signed-off-by: Codex <codex@openai.com>
+---
+ .../drm/nouveau/nvkm/subdev/instmem/base.c    | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/nouveau/nvkm/subdev/instmem/base.c b/drivers/gpu/drm/nouveau/nvkm/subdev/instmem/base.c
+index 6b9ed61684a0..a0ebca9d44aa 100644
+--- a/drivers/gpu/drm/nouveau/nvkm/subdev/instmem/base.c
++++ b/drivers/gpu/drm/nouveau/nvkm/subdev/instmem/base.c
+@@ -23,6 +23,10 @@
+  */
+ #include "priv.h"
+ 
++#include <linux/iosys-map.h>
++
++#include <drm/drm_cache.h>
++
+ #include <subdev/bar.h>
+ 
+ /******************************************************************************
+@@ -64,7 +68,10 @@ nvkm_instobj_save(struct nvkm_instobj *iobj)
+ 		for (i = 0; i < size; i += 4)
+ 			iobj->suspend[i / 4] = nvkm_ro32(memory, i);
+ 	} else {
+-		memcpy_fromio(iobj->suspend, map, size);
++		struct iosys_map dst = IOSYS_MAP_INIT_VADDR(iobj->suspend);
++		struct iosys_map src = IOSYS_MAP_INIT_VADDR_IOMEM(map);
++
++		drm_memcpy_from_wc(&dst, &src, size);
+ 	}
+ 	nvkm_done(memory);
+ 	return 0;
+-- 
+2.53.0

@@ -1,0 +1,28 @@
+#!/bin/sh
+exec tail -n +3 "$0"
+
+# Replace @ROOT_UUID@, @RESUME_UUID@, @KERNEL_RELEASE@ and
+# @FALLBACK_RELEASE@ before installing.  The production entry is deliberately
+# the only resume-enabled entry.
+menuentry 'Gentoo Nouveau production (resume-enabled)' --class gentoo --class gnu-linux --class gnu --class os --id macbookpro6-1-nouveau-production {
+	load_video
+	set gfxpayload=keep
+	insmod gzio
+	insmod part_msdos
+	insmod xfs
+	search --no-floppy --fs-uuid --set=root @ROOT_UUID@
+	echo 'Loading Linux @KERNEL_RELEASE@ ...'
+	linux /boot/kernel-@KERNEL_RELEASE@ root=UUID=@ROOT_UUID@ ro splash hid_apple.swap_fn_leftctrl=1 hid_apple.fnmode=2 nouveau.ignorelid=1 resume=UUID=@RESUME_UUID@ panic=30
+	initrd /boot/intel-uc.img /boot/initramfs-@KERNEL_RELEASE@.img
+}
+menuentry 'Gentoo Nouveau known-good rollback (noresume)' --class gentoo --class gnu-linux --class gnu --class os --id macbookpro6-1-nouveau-rollback {
+	load_video
+	set gfxpayload=keep
+	insmod gzio
+	insmod part_msdos
+	insmod xfs
+	search --no-floppy --fs-uuid --set=root @ROOT_UUID@
+	echo 'Loading Linux @FALLBACK_RELEASE@ without resume ...'
+	linux /boot/kernel-@FALLBACK_RELEASE@ root=UUID=@ROOT_UUID@ ro splash hid_apple.swap_fn_leftctrl=1 hid_apple.fnmode=2 nouveau.ignorelid=1 noresume panic=30
+	initrd /boot/intel-uc.img /boot/initramfs-@FALLBACK_RELEASE@.img
+}

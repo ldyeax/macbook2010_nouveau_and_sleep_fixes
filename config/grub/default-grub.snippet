@@ -1,0 +1,4 @@
+# Keep automatically generated and recovery entries cold-boot-only.  The
+# matching production entry opts into resume explicitly.
+GRUB_DEFAULT=saved
+GRUB_CMDLINE_LINUX="splash hid_apple.swap_fn_leftctrl=1 hid_apple.fnmode=2 nouveau.ignorelid=1 noresume panic=30"

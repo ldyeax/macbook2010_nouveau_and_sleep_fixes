@@ -1,0 +1,67 @@
+0000000000000450 <nv50_instobj_memcpy_from>:
+ 450:	call   455 <nv50_instobj_memcpy_from+0x5>
+			451: R_X86_64_PLT32	__fentry__-0x4
+ 455:	mov    %rdi,%rax
+ 458:	mov    %rsi,%rdi
+ 45b:	mov    %rdx,%rsi
+ 45e:	mov    %rcx,%rdx
+ 461:	mov    0x40(%rax),%rax
+ 465:	mov    0x10(%rax),%rax
+ 469:	cmpl   $0xa5,0x94(%rax)
+ 473:	jne    493 <nv50_instobj_memcpy_from+0x43>
+ 475:	mov    %rsi,%rax
+ 478:	push   %r14
+ 47a:	mov    %rsi,%r11
+ 47d:	or     %rcx,%rax
+ 480:	push   %rbx
+ 481:	mov    %rdi,%rbx
+ 484:	or     %rdi,%rax
+ 487:	test   $0x7,%al
+ 489:	je     498 <nv50_instobj_memcpy_from+0x48>
+ 48b:	pop    %rbx
+ 48c:	pop    %r14
+ 48e:	jmp    493 <nv50_instobj_memcpy_from+0x43>
+			48f: R_X86_64_PLT32	memcpy_fromio-0x4
+ 493:	jmp    498 <nv50_instobj_memcpy_from+0x48>
+			494: R_X86_64_PLT32	memcpy_fromio-0x4
+ 498:	lfence
+ 49b:	cmp    $0x1f,%rcx
+ 49f:	jbe    4f2 <nv50_instobj_memcpy_from+0xa2>
+ 4a1:	mov    %rcx,%r10
+ 4a4:	shr    $0x5,%r10
+ 4a8:	lea    -0x1(%r10),%r14
+ 4ac:	shl    $0x5,%r10
+ 4b0:	add    %rsi,%r10
+ 4b3:	mov    (%rsi),%r9
+ 4b6:	mov    0x8(%rsi),%r8
+ 4ba:	mov    0x10(%rsi),%rcx
+ 4be:	mov    0x18(%rsi),%rax
+ 4c2:	add    $0x20,%rsi
+ 4c6:	mov    %r9,(%rdi)
+ 4c9:	add    $0x20,%rdi
+ 4cd:	mov    %r8,-0x18(%rdi)
+ 4d1:	mov    %rcx,-0x10(%rdi)
+ 4d5:	mov    %rax,-0x8(%rdi)
+ 4d9:	cmp    %r10,%rsi
+ 4dc:	jne    4b3 <nv50_instobj_memcpy_from+0x63>
+ 4de:	mov    %r14,%rax
+ 4e1:	and    $0x1f,%edx
+ 4e4:	shl    $0x5,%rax
+ 4e8:	lea    0x20(%rbx,%rax,1),%rdi
+ 4ed:	lea    0x20(%r11,%rax,1),%rsi
+ 4f2:	test   %rdx,%rdx
+ 4f5:	je     511 <nv50_instobj_memcpy_from+0xc1>
+ 4f7:	add    %rsi,%rdx
+ 4fa:	mov    %rsi,%rax
+ 4fd:	add    $0x8,%rdi
+ 501:	add    $0x8,%rsi
+ 505:	mov    (%rax),%rax
+ 508:	mov    %rax,-0x8(%rdi)
+ 50c:	cmp    %rdx,%rsi
+ 50f:	jne    4fa <nv50_instobj_memcpy_from+0xaa>
+ 511:	lfence
+ 514:	pop    %rbx
+ 515:	pop    %r14
+ 517:	jmp    51c <nv50_instobj_memcpy_from+0xcc>
+			518: R_X86_64_PLT32	__x86_return_thunk-0x4
+ 51c:	nopl   0x0(%rax)
