@@ -70,3 +70,9 @@ The firmware also emits old ACPI resource warnings, and empty secondary SATA
 links can say that they failed to resume before the real disk/optical links
 recover.  These should not be confused with Nouveau faults or failed PM
 stages.
+
+At Xorg startup, the Apple Bluetooth controller can expose temporary HID proxy
+keyboard/mouse nodes (`05ac:820a`/`05ac:820b`) and then replace them with HCI
+mode (`05ac:8218`).  Xorg may log an unnamed-device invalid-path/PreInit error
+if it races that transition.  It is benign only when those nodes have vanished
+and the real internal keyboard and bcm5974 touchpad work normally.

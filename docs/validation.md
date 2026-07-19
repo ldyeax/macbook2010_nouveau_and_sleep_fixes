@@ -37,16 +37,23 @@ followed by `MM: using COPY for buffer copies` and no later GPU fault.
 ```bash
 glxinfo -B
 grep -Ei 'modeset\(|glamor|DRI3|Present' /var/log/Xorg.0.log
-if grep -E '^\[[^]]+\][[:space:]]+\(EE\)' /var/log/Xorg.0.log; then
-    echo 'real Xorg error records found' >&2
-    exit 1
-fi
+grep -E '^\[[^]]+\][[:space:]]+\(EE\)' /var/log/Xorg.0.log || true
 xrandr --current
 ```
 
 Require direct rendering, accelerated NVA5, generic modesetting, glamor,
-DRI3/Present, the internal panel's native mode, and zero real Xorg `(EE)`
-records.  Anchoring the grep avoids Xorg's informational `(EE) error` legend.
+DRI3/Present, the internal panel's native mode, and zero graphics-related Xorg
+errors.  Anchoring the grep avoids Xorg's informational `(EE) error` legend,
+but every real record still needs classification.
+
+On the tested Mac, Xorg can briefly see unnamed Apple Bluetooth HID-proxy
+keyboard/mouse nodes (`05ac:820a`/`05ac:820b`) while they disappear during the
+controller's transition to HCI mode (`05ac:8218`).  The resulting
+`Invalid path`, `Failed to create a device`, and `PreInit returned 2` sequence
+is acceptable only for those vanished unnamed nodes, with the real internal
+keyboard and bcm5974 touchpad initialized and working.  Do not waive video,
+modeset, glamor, DRI, Present, GPU-hang or persistent input errors.
+
 Check the greeter, Plasma login, lock/unlock, VT switching and a few accelerated
 applications.  SDDM's live X arguments should include `-s 0 -dpms`.
 

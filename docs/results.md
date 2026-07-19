@@ -11,15 +11,45 @@
 - Xorg: generic `modesetting`, glamor OpenGL 3.3, DRI3, Present, page flips;
 - renderer: direct/accelerated Mesa NVA5 at 1920x1200.
 
-The completed boot, S3 and guarded-S4 gates below used Mesa 25.3.6.  Mesa
-26.1.5 was installed afterward to gain upstream fence-race fix `0e79791fa5f6`;
-at the time of this snapshot, its final reboot/login/S3 smoke test was still
-pending and is not folded into the earlier power claims.
+The initial boot, S3 and guarded-S4 gates below used Mesa 25.3.6.  Mesa 26.1.5
+was installed afterward to gain upstream fence-race fix `0e79791fa5f6`, then
+validated separately as described below rather than retroactively folding it
+into the earlier S4 claim.
 
 The production boot reached `graphical.target` without the former white-screen
 detour or corrupted login frames.  The complete targeted journal scan found
 zero PFIFO, PGRAPH, DMA_PUSHER, MMU, trap, timeout, Oops, call-trace or lockup
 faults.
+
+## Mesa 26.1.5 reboot and S3 smoke
+
+After the Mesa update, the machine cold-booted the same prod2 kernel and kept
+SDDM/Xorg running for roughly 56 minutes before a successful Plasma login.
+The new session had no stale installed-library mappings and reported:
+
+```text
+direct rendering: Yes
+Device: NVA5 (0xa29)
+Version: 26.1.5
+Accelerated: yes
+OpenGL core profile: 3.3, Mesa 26.1.5
+KWin compositor active: true
+```
+
+A subsequent lid-triggered deep-S3 cycle spent about 33 seconds asleep by wall
+clock.  Kernel monotonic time advanced 10.553 seconds from suspend entry
+through exit.  The same boot ID and exact KWin/plasmashell processes survived;
+the desktop accepted input, direct rendering and compositing remained active,
+and NetworkManager restored the `lan` search domain.  Suspend stats were again
+`success=1`, `fail=0`, every failed-stage counter was zero, kernel taint stayed
+zero, and the post-resume Nouveau fault scan remained empty.
+
+Xorg logged no graphics errors.  It did record a transient libinput failure
+for unnamed event nodes belonging to Apple Bluetooth HID proxy IDs
+`05ac:820a`/`05ac:820b`; those nodes disappear when the controller transitions
+to HCI mode (`05ac:8218`).  The real internal keyboard and bcm5974 touchpad
+initialized and remained functional.  This is an input-device enumeration
+race, not a Nouveau/Mesa failure.
 
 ## Deep S3
 

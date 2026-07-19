@@ -12,8 +12,7 @@ The validated kernel/power stack is:
 - Nouveau built into the kernel, with `nouveau.ignorelid=1` on this Apple
   wiring;
 - Xorg's generic `modesetting` driver with glamor, DRI3 and page flipping;
-- Mesa 25.3.6 during the recorded S3/S4 gates, followed by a staged update to
-  Mesa 26.1.5 containing upstream commit `0e79791fa5f6`;
+- Mesa 26.1.5 containing upstream commit `0e79791fa5f6`;
 - ACPI deep S3 and direct S4 through a matching resume-enabled kernel entry.
 
 ## Validated result
@@ -24,8 +23,11 @@ cycle completed with `success=1`, `fail=0`; kernel monotonic time from suspend
 entry through exit advanced about 10.56 seconds.  A guarded S4 test restored
 the same kernel boot ID and the exact same KWin and Plasma processes.  The
 desktop remained directly rendered by NVA5 after both transitions.  Those
-power gates used Mesa 25.3.6; the post-reboot Mesa 26.1.5 smoke result is kept
-separate in [tested results](docs/results.md).
+power gates used Mesa 25.3.6.  After the Mesa 26.1.5 update, a fresh
+login and another lid-triggered deep-S3 cycle preserved the same session,
+direct NVA5 rendering and active KWin compositor with `success=1`, `fail=0`
+and another empty Nouveau fault scan.  The chronology is kept explicit in
+[tested results](docs/results.md).
 
 ## Start here
 
