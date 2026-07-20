@@ -21,6 +21,32 @@ detour or corrupted login frames.  The complete targeted journal scan found
 zero PFIFO, PGRAPH, DMA_PUSHER, MMU, trap, timeout, Oops, call-trace or lockup
 faults.
 
+## KDE power profiles
+
+On 2026-07-20, `power-profiles-daemon` 0.30 was confirmed to expose only its
+placeholder driver on this Westmere/`acpi-cpufreq` system: `balanced` and
+`power-saver` were listed but did not control the CPU, and `performance` was
+absent.  The production kernel already contained every usable cpufreq governor
+and the working `acpi-cpufreq` driver.  Westmere model `0x25` is absent from
+Linux's Intel P-State CPU table, so this was not a missing-kernel-option issue.
+
+Gentoo `sys-apps/tuned-2.27.0-r2[ppd]` replaced the placeholder daemon.  Three
+custom CPU-only profiles were exercised through the live Plasma 6.6.6
+PowerDevil D-Bus action, not merely through TuneD's administrative CLI:
+
+```text
+KDE performance -> performance governor on policy0..3, policy boost 1
+KDE balanced    -> schedutil governor on policy0..3, policy boost 1
+KDE power-saver -> powersave governor on policy0..3, policy boost 0
+```
+
+PowerDevil reported all three choices with no degraded or inhibited reason.
+`tuned-adm verify` passed after each mode, both TuneD services were enabled and
+active, and the final state was restored to `balanced`.  Sentinel values for
+VM writeback/swappiness, networking, disk readahead, SATA link power, audio
+power saving and NMI watchdog were unchanged across the test, confirming that
+the custom mappings did not inherit TuneD's broad built-in profile changes.
+
 ## Mesa 26.1.5 reboot and S3 smoke
 
 After the Mesa update, the machine cold-booted the same prod2 kernel and kept

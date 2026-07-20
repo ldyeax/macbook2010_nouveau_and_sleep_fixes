@@ -15,11 +15,16 @@ Python targets and accepted Mesa version first.
 - `package.use/mesa-python-transition` dual-targets only PyYAML and MarkupSafe
   for Python 3.13 and the profile-default 3.14.  That preserves the installed
   LIRC/Jinja2 consumers while Portage builds Mesa 26.1.5.
+- `package.use/power-management` enables TuneD's PPD-compatible D-Bus bridge
+  and temporarily keeps its new Python dependencies on 3.13.  This lets KDE
+  drive real `acpi-cpufreq` profiles without pulling the system's wider 3.14
+  transition into the power-management change.
 - `package.accept_keywords/mesa-nouveau` accepts only Mesa 26.1.5 from
   `~amd64`; it does not opt the system into Gentoo testing globally.
 
-The Python dual-target file is a temporary transition aid, not a permanent
-Mesa requirement.  Remove it when no installed consumer needs Python 3.13.
+Both Python transition settings are temporary aids, not permanent Mesa or
+TuneD requirements.  Remove them when no installed consumer needs Python
+3.13, then rebuild the affected packages for the selected Python target.
 
 The standalone upstream patch is retained under `../../patches/mesa/` for
 audit and a single-change backport if an older Mesa must be retained.  Mesa

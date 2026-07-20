@@ -27,7 +27,9 @@ power gates used Mesa 25.3.6.  After the Mesa 26.1.5 update, a fresh
 login and another lid-triggered deep-S3 cycle preserved the same session,
 direct NVA5 rendering and active KWin compositor with `success=1`, `fail=0`
 and another empty Nouveau fault scan.  The chronology is kept explicit in
-[tested results](docs/results.md).
+[tested results](docs/results.md).  KDE's three standard power profiles also
+drive tested CPU-only TuneD policies through PowerDevil despite this Westmere
+machine lacking a modern P-State or firmware platform-profile backend.
 
 ## Start here
 
@@ -66,8 +68,8 @@ them to a production kernel.
 
 - `patches/linux/`: accepted Linux series and clearly rejected experiments;
 - `patches/mesa/`: upstream Mesa race fix for provenance/backporting only;
-- `config/`: tested kernel, Xorg, SDDM, systemd, NetworkManager and Portage
-  material;
+- `config/`: tested kernel, Xorg, SDDM, systemd, NetworkManager, Portage and
+  KDE/TuneD power-profile material;
 - `scripts/`: portable build and validation helpers;
 - `tools/`: the BAR2 read benchmark used during diagnosis;
 - `docs/`: diagnosis, installation, rollback, results and provenance;

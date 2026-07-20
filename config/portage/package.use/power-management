@@ -1,0 +1,9 @@
+# TuneD's PPD bridge is the userspace backend for KDE power profiles on this
+# Westmere machine.  Keep it on Python 3.13 during the local 3.13 -> 3.14
+# transition so installing it does not force unrelated desktop rebuilds.
+sys-apps/tuned ppd python_single_target_python3_13 -python_single_target_python3_14
+dev-python/configobj python_targets_python3_13 -python_targets_python3_14
+dev-python/decorator python_targets_python3_13 -python_targets_python3_14
+dev-python/pyinotify python_targets_python3_13 -python_targets_python3_14
+dev-python/python-linux-procfs python_targets_python3_13 -python_targets_python3_14
+dev-python/pyudev python_targets_python3_13 -python_targets_python3_14
